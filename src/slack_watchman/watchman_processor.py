@@ -4,6 +4,7 @@ import json
 import multiprocessing
 import re
 from typing import List, Dict
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -273,6 +274,28 @@ def _multipro_file_worker(slack: SlackClient,
     return kwargs.get('results'), kwargs.get('potential_matches')
 
 
+def build_validated_url(base_url: str) -> str:
+    try:
+        # Minimal path validation
+        if "/../" in base_url or re.search(r"/%2e%2e/", base_url, re.IGNORECASE):
+            raise ValueError("Invalid path")
+        
+        parsed = urlparse(base_url)
+        
+        # Protocol + host checks
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Invalid protocol")
+        if not parsed.hostname:
+            raise ValueError("Invalid host")
+        hostname_lower = parsed.hostname.lower()
+        if hostname_lower != "slack.com" and not hostname_lower.endswith(".slack.com"):
+            raise ValueError("Invalid host")
+        
+        return urlunparse(parsed)
+    except Exception:
+        raise ValueError("Invalid URL")
+
+
 def find_auth_information(domain_url: str) -> Dict[str, List[str]] | None:
     """ Get domain authentication information from the Slack workspace
 
@@ -285,7 +308,7 @@ def find_auth_information(domain_url: str) -> Dict[str, List[str]] | None:
         A dictionary with results or None if no results
     """
 
-    response = requests.get(domain_url, timeout=60)
+    response = requests.get(build_validated_url(domain_url), timeout=60)
     soup = BeautifulSoup(response.text, 'html.parser')
     props_node = soup.find('div', {'id': 'props_node'})
 
